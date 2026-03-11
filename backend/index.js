@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // ✅ FIXED: Only one cors() call, with proper string array for methods
 app.use(cors({
-  origin: ["https://ordermade-bay.vercel.app", "http://localhost:5173"],
+  origin: ["ordermade-main-puce.vercel.app", "http://localhost:5173"],
   methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
