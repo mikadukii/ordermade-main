@@ -1,0 +1,10 @@
+How to run this website locally
+
+so you have this file already downloaded
+you have to click terminal then new terminal
+there's visual instructions for in case don't know how to run
+cd backend -> npm run dev
+cd frontend -> npm run dev
+please run both of frontend and backend 
+
+NOTE: It suggested to use VPN cloudfare WARP 1.1.1.1 to run backend otherwise it couldn't run and cause this error 
