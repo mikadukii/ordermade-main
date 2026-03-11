@@ -6,8 +6,6 @@ const bcrypt = require('bcrypt');
 const express = require('express');
 const serverless = require("serverless-http");
 
-// Create an Express apps
-// comment
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
@@ -16,17 +14,27 @@ const path = require('path');
 const upload = require('./multer');
 const Order = require('./src/models/order.model.js');
 
-app.use(cors());
+// ✅ FIXED: Use express.json() BEFORE cors and routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// ✅ FIXED: Only one cors() call, with proper string array for methods
+app.use(cors({
+  origin: ["https://ordermade-bay.vercel.app", "http://localhost:5173"],
+  methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
+  credentials: true
+}));
+
+app.options('*', cors());
 
 const {authenticateToken, isAdmin} = require('./utilities.js');
+
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
 
-// Check if the connection is successful
 mongoose.connection.on('connected', () => {
   console.log('Connected to MongoDB');
 });
@@ -35,46 +43,28 @@ mongoose.connection.on('error', (err) => {
   console.log('Error connecting to MongoDB:', err);
 });
 
+// Define models
+const User = require('./src/models/user.models.js');
+const Portfolio = require('./src/models/portfolio.model.js');
+const Services = require('./src/models/services.model.js');
 
-app.use(cors({
-  origin: ["https://ordermade-bay.vercel.app"],
-  methods: [POST, GET],
-  credentials: true
-}));
+const adminRoutes = require('./src/routes/adminRoute.js');
+app.use('/api/admin', adminRoutes);
 
-app.options('*', cors());
-
-//handler for image upload
+// Handler for image upload
 app.post("/image-upload", upload.single("image"), async (req, res) => {
   try {
-    console.log("Request body:", req.body);
-    console.log("Received file:", req.file); // Log the received file
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
-
     const BASE_URL = process.env.BASE_URL;
-
     const imageURL = `${BASE_URL}/uploads/${req.file.filename}`;
     res.status(201).json({ imageURL });
-
   } catch (error) {
     console.error("Upload error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
-
-// Use middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-const adminRoutes = require('./src/routes/adminRoute.js'); // adjust path as needed
-app.use('/api/admin', adminRoutes);
-
-// Define the User model
-const User = require('./src/models/user.models.js');
-const Portfolio = require('./src/models/portfolio.model.js');
-const Services = require('./src/models/services.model.js');
 
 // Register Account
 app.post("/api/register", async (req, res) => {
@@ -93,13 +83,13 @@ app.post("/api/register", async (req, res) => {
     const newUser = new User({
       username,
       email,
-      password, 
+      password,
       bustSize,
       waistSize,
       hipSize,
     });
 
-    await newUser.save(); 
+    await newUser.save();
 
     const accessToken = jwt.sign(
       { userId: newUser._id },
@@ -119,8 +109,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-
-
+// Login
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -133,9 +122,6 @@ app.post("/api/login", async (req, res) => {
     return res.status(400).json({ message: 'User did not register the email yet' });
   }
 
-  console.log('Attempt login:', { email, passwordAttempt: password });
-  console.log('Stored password hash:', user.password);
-
   let isPasswordValid = false;
   try {
     isPasswordValid = await bcrypt.compare(password, user.password);
@@ -143,8 +129,6 @@ app.post("/api/login", async (req, res) => {
     console.error('bcrypt compare error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
-
-  console.log('Password valid:', isPasswordValid);
 
   if (!isPasswordValid) {
     return res.status(400).json({ message: 'Invalid password' });
@@ -169,34 +153,24 @@ app.post("/api/login", async (req, res) => {
   });
 });
 
-
-// admin-only route
+// Admin-only route
 app.get('/admin-dashboard', authenticateToken, isAdmin, (req, res) => {
   res.status(200).json({ message: 'Welcome to the Admin Dashboard!' });
 });
 
 app.get("/get-user", authenticateToken, async (req, res) => {
-  const { userId } = req.user; // Assuming you are getting the userId from the authenticated token
-
+  const { userId } = req.user;
   try {
-    // Find the user by ID, which should return a single user object
     const user = await User.findById(userId);
-
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-
-    // Return the single user object
-    return res.json({
-      user,  // Single user object, not an array
-      message: "User fetched successfully",
-    });
+    return res.json({ user, message: "User fetched successfully" });
   } catch (error) {
     console.error("Error fetching user:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 app.get("/get-user-profile", authenticateToken, async (req, res) => {
   const { userId } = req.user;
@@ -212,7 +186,6 @@ app.get("/get-user-profile", authenticateToken, async (req, res) => {
   }
 });
 
-
 app.put("/edit-profile/:id", authenticateToken, async (req, res) => {
   const { username, bustSize, waistSize, hipSize } = req.body;
   const { id } = req.params;
@@ -227,65 +200,37 @@ app.put("/edit-profile/:id", authenticateToken, async (req, res) => {
   }
 
   try {
-    const updateFields = { username, bustSize, waistSize, hipSize };
-
-    const updatedUser = await User.findByIdAndUpdate(id, updateFields, { new: true });
-
+    const updatedUser = await User.findByIdAndUpdate(id, { username, bustSize, waistSize, hipSize }, { new: true });
     if (!updatedUser) {
       return res.status(404).json({ message: "User not found" });
     }
-
-    return res.status(200).json({
-      error: false,
-      message: "Profile updated successfully",
-    });
+    return res.status(200).json({ error: false, message: "Profile updated successfully" });
   } catch (error) {
     console.error("Error updating profile:", error);
     return res.status(500).json({ message: "Internal server error" });
   }
 });
 
-
-
 app.post("/add-portfolio", authenticateToken, isAdmin, async (req, res) => {
   try {
-      const { title, description, imageURL } = req.body;
-      const { userId } = req.user;
+    const { title, description, imageURL } = req.body;
+    const { userId } = req.user;
 
-      if (!title || !description || !imageURL) {
-          return res.status(400).json({
-              error: true,
-              message: 'Please fill all fields',
-          });
-      }
+    if (!title || !description || !imageURL) {
+      return res.status(400).json({ error: true, message: 'Please fill all fields' });
+    }
 
-      const portfolio = new Portfolio({
-          title,
-          description,
-          imageURL,
-          createdBy: userId,
-      });
+    const portfolio = new Portfolio({ title, description, imageURL, createdBy: userId });
+    await portfolio.save();
 
-      await portfolio.save();
-
-      return res.status(201).json({
-          error: false,
-          message: 'Portfolio created successfully',
-      });
-
+    return res.status(201).json({ error: false, message: 'Portfolio created successfully' });
   } catch (error) {
-      console.error('Error creating portfolio:', error);
-      return res.status(500).json({
-          error: true,
-          message: 'Internal server error',
-      });
+    return res.status(500).json({ error: true, message: 'Internal server error' });
   }
 });
 
-
-app.post('/place-order', authenticateToken, async (req, res) => {
+app.post("/place-order", authenticateToken, async (req, res) => {
   const { title, description, imageURL, servicesId } = req.body;
-  const { userId } = req.user;
 
   if (!title || !description || !imageURL || !servicesId) {
     return res.status(400).json({ message: 'Please fill all fields' });
@@ -301,22 +246,19 @@ app.post('/place-order', authenticateToken, async (req, res) => {
     });
 
     await newOrder.save();
-    res.status(201).json({ message: 'Order placed successfully' , order: newOrder});
+    res.status(201).json({ message: 'Order placed successfully', order: newOrder });
   } catch (error) {
     console.error('Error placing order:', error);
     return res.status(500).json({ message: 'Failed to place order', error: error.message });
-  }  
+  }
 });
 
-// Get logged-in user's own orders
 app.get("/user-orders", authenticateToken, async (req, res) => {
   const { userId } = req.user;
-
   try {
     const orders = await Order.find({ createdBy: userId })
-      .populate("servicesId") // Include service details
-      .sort({ createdAt: -1 }); // Optional: latest first
-
+      .populate("servicesId")
+      .sort({ createdAt: -1 });
     res.status(200).json({ orders });
   } catch (err) {
     console.error("Failed to fetch user orders", err);
@@ -324,69 +266,58 @@ app.get("/user-orders", authenticateToken, async (req, res) => {
   }
 });
 
+// Serve static files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
-  
-// serve static files from uploads and assets directory
-app.use('/uploads', express.static(path.join(__dirname,'uploads')));
-app.use('/assets', express.static(path.join(__dirname,'assets')));
-
-
-//delete image from uploads
 app.delete("/delete-image", async (req, res) => {
   const { imageURL } = req.body;
   if (!imageURL) {
-      return res.status(400).json({ message: "No image URL provided" });
+    return res.status(400).json({ message: "No image URL provided" });
   }
-
   try {
-    // Check if the file exists
     const filename = path.basename(imageURL);
-
-    // Construct the file path
     const filePath = path.join(__dirname, 'uploads', filename);
-
     if (fs.existsSync(filePath)) {
-      // Delete the file
       fs.unlinkSync(filePath);
       return res.status(200).json({ message: "Image deleted successfully" });
     } else {
       return res.status(404).json({ message: "Image not found" });
     }
   } catch (error) {
-    res.status (500).json({ message: "Internal server error" });
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
 app.get("/get-portfolio", async (req, res) => {
   try {
-    const portfolios = await Portfolio.find(); // You can filter by isPublished if needed
+    const portfolios = await Portfolio.find();
     res.status(200).json({ portfolio: portfolios });
   } catch (error) {
     res.status(500).json({ error: true, message: 'Internal server error' });
   }
 });
 
-
+// ✅ FIXED: was using undefined `userId` variable
 app.get("/get-services", authenticateToken, async (req, res) => {
-    try {
-        const isServices = await Services.find({ createdBy : userId});
-        res.status(200).json({ services: isServices });
-    } catch (error) {
-        res.status(500).json({ error: true, message: 'Internal server error' });
-    }
-})
+  try {
+    const { userId } = req.user;
+    const isServices = await Services.find({ createdBy: userId });
+    res.status(200).json({ services: isServices });
+  } catch (error) {
+    res.status(500).json({ error: true, message: 'Internal server error' });
+  }
+});
 
-// Get all services (public)
 app.get('/services', async (req, res) => {
   try {
-    const services = await Services.find(); // or whatever your model is
+    const services = await Services.find();
     res.json({ services });
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch services' });
   }
 });
 
-// Get services by ID (public)
 app.get('/get-services-id/:id', authenticateToken, async (req, res) => {
   try {
     const services = await Services.findById(req.params.id);
@@ -398,36 +329,22 @@ app.get('/get-services-id/:id', authenticateToken, async (req, res) => {
   }
 });
 
-
 app.put("/edit-portfolio/:id", authenticateToken, isAdmin, async (req, res) => {
-    const { title, description, imageURL } = req.body;
-    const { userId } = req.user;
-    const { id } = req.params;
+  const { title, description, imageURL } = req.body;
+  const { userId } = req.user;
+  const { id } = req.params;
 
-    // validation
-    if (!title || !description || !imageURL) {
-        return res.status(400).json({ message: 'Please fill all fields' });
-    }
+  if (!title || !description || !imageURL) {
+    return res.status(400).json({ message: 'Please fill all fields' });
+  }
 
-    try {
-        const portfolio = await Portfolio.findByIdAndUpdate(id, {
-            title,
-            description,
-            imageURL,
-            userId,
-        }, { new: true });
-
-        return res.status(201).json({
-            error: false,
-            message: 'Portfolio updated successfully',
-        });
-    }
-    catch (error) {
-        return res.status(500).json({ message: 'Internal server error' });
-    }
-})
-  
-
+  try {
+    await Portfolio.findByIdAndUpdate(id, { title, description, imageURL, userId }, { new: true });
+    return res.status(201).json({ error: false, message: 'Portfolio updated successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 app.delete("/delete-portfolio/:id", authenticateToken, isAdmin, async (req, res) => {
   const { id } = req.params;
@@ -443,10 +360,8 @@ app.delete("/delete-portfolio/:id", authenticateToken, isAdmin, async (req, res)
     const filename = path.basename(imageURL);
     const filePath = path.join(__dirname, 'uploads', filename);
 
-    // Delete portfolio
     await Portfolio.deleteOne({ _id: id, createdBy: userId });
 
-    // Delete image file
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -458,40 +373,37 @@ app.delete("/delete-portfolio/:id", authenticateToken, isAdmin, async (req, res)
   }
 });
 
+// ✅ FIXED: removed code after res.send() which caused crash
 app.delete("/delete-services/:id", authenticateToken, isAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { userId } = req.user;
-    try {
-        await Services.findByIdAndDelete(id);
-        res.status(200).json({ message: "Services deleted successfully" });
-    } catch (error) {
-        res.status(500).json({ error: true, message: 'Internal server error' });
+  const { id } = req.params;
+  try {
+    const service = await Services.findById(id);
+    if (!service) {
+      return res.status(404).json({ message: "Service not found" });
     }
 
-    // delete services from database
-    await Services.deleteOne({ _id: id, userId: userId });
-    
-    const imageURL = services.imageURL;
+    const imageURL = service.imageURL;
     const filename = path.basename(imageURL);
-
     const filePath = path.join(__dirname, 'uploads', filename);
 
-    fs.unlink(filePath, (err) => {
-        if (err) {
-            console.error('Error deleting file:', err);
-            return res.status(500).json({ message: 'Internal server error' });
-        }
-        console.log('File deleted successfully:', filePath);
-    });
-    res.status(200).json({ message: 'Services deleted successfully' });
+    await Services.findByIdAndDelete(id);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    res.status(200).json({ message: "Services deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: true, message: 'Internal server error' });
+  }
 });
 
-
-//stripe payment integration
-const stripe = require('stripe')('sk_test_51RRpyq2eCI3ypHyOVP4Ycj1IUB8IBiV7xDFlTQO4Bhu2fH6dEyAODcVzz7BVXYpSQquRQK0HTYnkZT8Az7RauXaB002TsoCUOi'); 
+// ✅ FIXED: moved Stripe key to env variable - NEVER hardcode secret keys!
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 app.post('/create-checkout-session', authenticateToken, async (req, res) => {
   const { servicesId, title, description, imageURL } = req.body;
+  const BASE_URL = process.env.BASE_URL;
 
   try {
     const services = await Services.findById(servicesId);
@@ -499,7 +411,6 @@ app.post('/create-checkout-session', authenticateToken, async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    // Construct query string to redirect back after Stripe
     const successUrl = new URL(`${BASE_URL}/order-success`);
     successUrl.searchParams.append('servicesId', servicesId);
     successUrl.searchParams.append('title', encodeURIComponent(title));
@@ -514,7 +425,7 @@ app.post('/create-checkout-session', authenticateToken, async (req, res) => {
             currency: 'usd',
             product_data: {
               name: services.title,
-              images: [services.imageURL], // ✅ must be a full URL
+              images: [services.imageURL],
             },
             unit_amount: services.price * 100,
           },
@@ -523,7 +434,7 @@ app.post('/create-checkout-session', authenticateToken, async (req, res) => {
       ],
       mode: 'payment',
       success_url: successUrl.toString(),
-      cancel_url: 'http://localhost:5173/order-cancelled',
+      cancel_url: `${BASE_URL}/order-cancelled`,
     });
 
     return res.json({ url: session.url });
@@ -536,7 +447,6 @@ app.post('/create-checkout-session', authenticateToken, async (req, res) => {
 app.get('/recommended-services', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-
     const orders = await Order.find({ userId }).populate('servicesId');
 
     if (!orders.length) {
@@ -551,7 +461,6 @@ app.get('/recommended-services', authenticateToken, async (req, res) => {
     });
 
     const mostFrequentCategory = Object.entries(categoryCount).sort((a, b) => b[1] - a[1])[0][0];
-
     const recommended = await Services.find({ category: mostFrequentCategory }).limit(5);
 
     res.status(200).json({ recommended });
@@ -561,7 +470,4 @@ app.get('/recommended-services', authenticateToken, async (req, res) => {
   }
 });
 
-// Start the server
 module.exports = app;
-
-
