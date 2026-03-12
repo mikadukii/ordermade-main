@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
+
 import Alert from '../components/Alert';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -22,7 +23,7 @@ const Register = () => {
         e.preventDefault();
         try {
             const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-            const response = await axios.post(`${API_URL}/register`, formsData);
+            const response = await axios.post(`/api/register`, formsData);
 
             if (response.data.accessToken && response.data.user) {
             // ✅ Save token and user info
